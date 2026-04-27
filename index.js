@@ -3,6 +3,8 @@ const qrcode = require('qrcode-terminal');
 const pino = require('pino');
 const axios = require('axios');
 
+const silencedUsers = new Set(); // Memoria temporal para el Modo Silencioso
+
 const N8N_WEBHOOK_URL = 'http://localhost:5678/webhook/whatsapp';
 
 async function startBot() {
@@ -63,6 +65,36 @@ async function startBot() {
         const incomingText = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
 
         if(incomingText === "") return; 
+
+        // ========================================================
+        // 🛑 INICIO LÓGICA MODO SILENCIOSO (INTERVENCIÓN RRHH)
+        // ========================================================
+        const textToEvaluate = incomingText.trim().toLowerCase();
+
+        // Comando para que RRHH pause el bot manualmente
+        if (textToEvaluate === "!pausar") {
+            silencedUsers.add(senderJid);
+            console.log(`🔇 Bot silenciado manualmente para: ${senderJid}`);
+            await sock.sendMessage(senderJid, { text: "✅ Un representante de RRHH ha tomado el chat. El bot está pausado." });
+            return; // Cortamos la ejecución, el mensaje NO va a n8n
+        }
+
+        // Comando para que RRHH reactive el bot
+        if (textToEvaluate === "!activar") {
+            silencedUsers.delete(senderJid);
+            console.log(`🔊 Bot reactivado para: ${senderJid}`);
+            await sock.sendMessage(senderJid, { text: "🤖 Macxito vuelve a estar operativo en este chat." });
+            return; // Cortamos la ejecución, el mensaje NO va a n8n
+        }
+
+        // Si el usuario está en la lista de silenciados, ignoramos sus mensajes
+        if (silencedUsers.has(senderJid)) {
+            console.log(`[Modo Silencioso] Mensaje ignorado de ${pushName}: ${incomingText}`);
+            return; // NO enviamos el mensaje a n8n
+        }
+        // ========================================================
+        // 🟢 FIN LÓGICA MODO SILENCIOSO
+        // ========================================================
 
         console.log(`📩 Mensaje de ${pushName} (${senderJid}): ${incomingText}`);
 
