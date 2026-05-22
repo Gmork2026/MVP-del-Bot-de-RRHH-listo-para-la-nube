@@ -67,7 +67,7 @@ async function startBot() {
         console.log(`Remote JID (El enmascarado):`, msg.key.remoteJid);
         console.log(`Participant (¿ID Real?):`, msg.key.participant || 'No existe');
         console.log(`Rayos X del mensaje:`, JSON.stringify(msg, null, 2));
-        console.log(`-------------------------\n`);const senderJid = msg.key.remoteJid; 
+        console.log(`-------------------------\n`);const senderJid = msg.key.remoteJidAlt || msg.key.remoteJid; 
         const pushName = msg.pushName || 'Usuario';
         const incomingText = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
 
