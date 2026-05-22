@@ -20,13 +20,13 @@ async function startBot() {
     const { version, isLatest } = await fetchLatestBaileysVersion();
     console.log(`🔌 Conectando con WhatsApp Web v${version.join('.')} (Última: ${isLatest})`);
 
-    const { state, saveCreds } = await useMultiFileAuthState('auth_session_v3');
+    const { state, saveCreds } = await useMultiFileAuthState('auth_session_v4');
 
     const sock = makeWASocket({
         version: version, 
         auth: state,
         logger: pino({ level: 'silent' }), 
-        browser: ["Macxito Bot", "Chrome", "1.0.0"],
+        browser: ["Ubuntu", "Chrome", "20.0.04"],
         printQRInTerminal: false, // 🔴 APAGAMOS EL QR
         syncFullHistory: false,   // 🟢 Hacemos que cargue más rápido
         generateHighQualityLinkPreview: true
