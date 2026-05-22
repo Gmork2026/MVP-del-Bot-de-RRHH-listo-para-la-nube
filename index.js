@@ -11,7 +11,7 @@ const TIEMPO_PAUSA_MS = 60 * 60 * 1000; // 60 minutos exactos en milisegundos
 
 const silencedUsers = new Set(); // Memoria temporal para el Modo Silencioso
 
-const N8N_WEBHOOK_URL = 'http://localhost:5678/webhook-test/whatsapp';
+const N8N_WEBHOOK_URL = 'https://n8n-production-115e.up.railway.app/webhook/whatsapp';
 
 async function startBot() {
     console.log('--- Iniciando Bot de RRHH (v2) ---');
