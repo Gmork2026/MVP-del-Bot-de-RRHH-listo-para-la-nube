@@ -124,3 +124,15 @@ async function startBot() {
 }
 
 startBot().catch(err => console.error("Error crítico al arrancar:", err));
+
+// ==========================================
+// 🛡️ ESCUDO ANTI-CAÍDAS (ERRORES GLOBALES)
+// ==========================================
+process.on('uncaughtException', (err) => {
+    console.error('⚠️ Error global capturado (uncaughtException):', err.message);
+    // No apagamos el bot, dejamos que Baileys se reconecte solo
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('⚠️ Promesa no manejada (unhandledRejection):', reason);
+});
