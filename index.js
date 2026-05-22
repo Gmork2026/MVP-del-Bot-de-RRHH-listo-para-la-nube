@@ -60,7 +60,14 @@ async function startBot() {
         
         if (!msg.message || msg.key.fromMe || msg.key.remoteJid.includes('@g.us')) return; 
 
-        const senderJid = msg.key.remoteJid; 
+        // ==========================================
+        // 🛠️ DIAGNÓSTICO DE INGENIERÍA PARA EL @LID
+        // ==========================================
+        console.log(`\n--- 🔍 DEBUG WHATSAPP ---`);
+        console.log(`Remote JID (El enmascarado):`, msg.key.remoteJid);
+        console.log(`Participant (¿ID Real?):`, msg.key.participant || 'No existe');
+        console.log(`Rayos X del mensaje:`, JSON.stringify(msg, null, 2));
+        console.log(`-------------------------\n`);const senderJid = msg.key.remoteJid; 
         const pushName = msg.pushName || 'Usuario';
         const incomingText = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
 
