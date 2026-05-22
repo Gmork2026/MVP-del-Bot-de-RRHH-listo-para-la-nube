@@ -20,7 +20,7 @@ async function startBot() {
     const { version, isLatest } = await fetchLatestBaileysVersion();
     console.log(`🔌 Conectando con WhatsApp Web v${version.join('.')} (Última: ${isLatest})`);
 
-    const { state, saveCreds } = await useMultiFileAuthState('auth_session_v2');
+    const { state, saveCreds } = await useMultiFileAuthState('auth_session_v3');
 
     const sock = makeWASocket({
         version: version, 
