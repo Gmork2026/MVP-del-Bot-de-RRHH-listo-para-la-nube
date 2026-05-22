@@ -3,6 +3,12 @@ const qrcode = require('qrcode-terminal');
 const pino = require('pino');
 const axios = require('axios');
 
+// ==========================================
+// 🛑 GESTOR DE PAUSAS EN MEMORIA (60 MINUTOS)
+// ==========================================
+const usuariosPausados = new Map();
+const TIEMPO_PAUSA_MS = 60 * 60 * 1000; // 60 minutos exactos en milisegundos
+
 const silencedUsers = new Set(); // Memoria temporal para el Modo Silencioso
 
 const N8N_WEBHOOK_URL = 'http://localhost:5678/webhook-test/whatsapp';
@@ -109,6 +115,32 @@ async function startBot() {
 
         try {
             console.log(`➡️  Consultando cerebro (n8n)...`);
+
+            // ---------------------------------------------------------
+            // 🛡️ 1. INTERCEPTOR: VERIFICAR SI EL NÚMERO ESTÁ PAUSADO
+            // ---------------------------------------------------------
+            if (usuariosPausados.has(senderJid)) {
+                const tiempoInicioPausa = usuariosPausados.get(senderJid);
+                const tiempoTranscurrido = Date.now() - tiempoInicioPausa;
+
+                if (tiempoTranscurrido < TIEMPO_PAUSA_MS) {
+                    const minutosRestantes = ((TIEMPO_PAUSA_MS - tiempoTranscurrido) / 60000).toFixed(0);
+                    console.log(`⏳ [BOT PAUSADO] Ignorando mensaje de ${senderJid}. Restan: ${minutosRestantes} min.`);
+                    return; // 🛑 CORTA LA EJECUCIÓN. El mensaje muere aquí, no va a n8n.
+                } else {
+                    console.log(`✅ [PAUSA TERMINADA] El tiempo expiró. Reactivando bot para ${senderJid}.`);
+                    usuariosPausados.delete(senderJid);
+                }
+            }
+
+            // ---------------------------------------------------------
+            // 🎯 2. DISPARADOR: ACTIVAR LA PAUSA SI SE ELIGE HUMANO
+            // ---------------------------------------------------------
+            const comandoUsuario = incomingText.trim().toUpperCase();
+            if (comandoUsuario === '3' || comandoUsuario === 'B') {
+                usuariosPausados.set(senderJid, Date.now());
+                console.log(`🛑 [NUEVA PAUSA ACTIVADA] El usuario ${senderJid} se derivó a un humano. Bot silenciado por 60 min.`);
+            }
             
             const n8nResponse = await axios.post(N8N_WEBHOOK_URL, {
                 sender: senderJid,
