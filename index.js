@@ -1,4 +1,5 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const qrcode = require('qrcode-terminal');
 const pino = require('pino');
 const axios = require('axios');
 
@@ -6,30 +7,50 @@ const axios = require('axios');
 // 🛑 GESTOR DE PAUSAS EN MEMORIA (60 MINUTOS)
 // ==========================================
 const usuariosPausados = new Map();
-const TIEMPO_PAUSA_MS = 60 * 60 * 1000;
+const TIEMPO_PAUSA_MS = 60 * 60 * 1000; // 60 minutos exactos en milisegundos
 
-const silencedUsers = new Set(); 
+const silencedUsers = new Set(); // Memoria temporal para el Modo Silencioso
 
 const N8N_WEBHOOK_URL = 'https://n8n-production-115e.up.railway.app/webhook/whatsapp';
 
 async function startBot() {
-    console.log('--- Iniciando Bot de RRHH (v5 - QR en Navegador) ---');
+    console.log('--- Iniciando Bot de RRHH (v2) ---');
 
+    // 1. OBTENER LA ÚLTIMA VERSIÓN DE WHATSAPP (ESTO EVITA EL ERROR 405)
     const { version, isLatest } = await fetchLatestBaileysVersion();
     console.log(`🔌 Conectando con WhatsApp Web v${version.join('.')} (Última: ${isLatest})`);
 
-    // 🔴 SALTAMOS A V5 PARA UNA SESIÓN 100% VIRGEN
-    const { state, saveCreds } = await useMultiFileAuthState('auth_session_v5');
+    const { state, saveCreds } = await useMultiFileAuthState('auth_session_v4');
 
     const sock = makeWASocket({
         version: version, 
         auth: state,
         logger: pino({ level: 'silent' }), 
-        browser: ["Macxito Bot", "Chrome", "1.0.0"],
-        printQRInTerminal: false, // Apagamos el dibujo roto de la terminal
-        syncFullHistory: false,   
+        browser: ["Ubuntu", "Chrome", "20.0.04"],
+        printQRInTerminal: false, // 🔴 APAGAMOS EL QR
+        syncFullHistory: false,   // 🟢 Hacemos que cargue más rápido
         generateHighQualityLinkPreview: true
     });
+
+    // ========================================================
+    // 🔑 MAGIA DE VINCULACIÓN EN LA NUBE (CÓDIGO DE 8 DÍGITOS)
+    // ========================================================
+    if (!sock.authState.creds.registered) {
+        setTimeout(async () => {
+            // ⚠️ REEMPLAZA ESTE NÚMERO POR EL DEL BOT (Ej: 5491123456789)
+            let numeroBot = "5491121895719"; 
+            
+            try {
+                let code = await sock.requestPairingCode(numeroBot);
+                code = code?.match(/.{1,4}/g)?.join("-") || code;
+                console.log(`\n========================================`);
+                console.log(`🔑 TU CÓDIGO DE VINCULACIÓN ES: ${code}`);
+                console.log(`========================================\n`);
+            } catch (error) {
+                console.log("Error pidiendo código de vinculación: ", error.message);
+            }
+        }, 3000);
+    }
 
     sock.ev.on('creds.update', saveCreds);
 
@@ -38,12 +59,8 @@ async function startBot() {
 
         if (qr) {
             console.clear();
-            // 🌟 MAGIA PURA: CONVERTIMOS EL QR EN UN ENLACE WEB
-            const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}`;
-            console.log('\n===========================================================================');
-            console.log('🔗 HAZ CLIC EN ESTE ENLACE O CÓPIALO EN TU NAVEGADOR PARA VER EL QR:');
-            console.log(qrImageUrl);
-            console.log('===========================================================================\n');
+            console.log('🔽 ESCANEA ESTE QR CON TU WHATSAPP (MODO MULTIDISPOSITIVO) 🔽');
+            qrcode.generate(qr, { small: true });
         }
 
         if (connection === 'close') {
@@ -57,51 +74,73 @@ async function startBot() {
                 console.log('⏳ Reconectando en 5 segundos...');
                 setTimeout(startBot, 5000); 
             } else {
-                console.log('🛑 Sesión cerrada (Logged Out). Borra la carpeta de sesión actual.');
+                console.log('🛑 Sesión cerrada (Logged Out). Debes borrar la carpeta auth_session_v4 y volver a escanear el QR.');
             }
         } else if (connection === 'open') {
             console.clear();
             console.log('✅ ✅ ✅ Macxito Bot CONECTADO y LISTO ✅ ✅ ✅');
-            console.log('Esperando mensajes en la nube...');
+            console.log('Esperando mensajes...');
         }
     });
 
     sock.ev.on('messages.upsert', async m => {
         const msg = m.messages[0];
+        
         if (!msg.message || msg.key.fromMe || msg.key.remoteJid.includes('@g.us')) return; 
 
+        // ==========================================
+        // 🛠️ DIAGNÓSTICO DE INGENIERÍA PARA EL @LID
+        // ==========================================
+        /*console.log(`\n--- 🔍 DEBUG WHATSAPP ---`);
+        console.log(`Remote JID (El enmascarado):`, msg.key.remoteJid);
+        console.log(`Participant (¿ID Real?):`, msg.key.participant || 'No existe');
+        console.log(`Rayos X del mensaje:`, JSON.stringify(msg, null, 2));
+        console.log(`-------------------------\n`);*/
+        
         const senderJid = msg.key.remoteJidAlt || msg.key.remoteJid; 
         const pushName = msg.pushName || 'Usuario';
         const incomingText = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
 
         if(incomingText === "") return; 
 
+        // ========================================================
+        // 🛑 INICIO LÓGICA MODO SILENCIOSO (INTERVENCIÓN RRHH)
+        // ========================================================
         const textToEvaluate = incomingText.trim().toLowerCase();
 
+        // Comando para que RRHH pause el bot manualmente
         if (textToEvaluate === "!pausar") {
             silencedUsers.add(senderJid);
             console.log(`🔇 Bot silenciado manualmente para: ${senderJid}`);
             await sock.sendMessage(senderJid, { text: "✅ Un representante de RRHH ha tomado el chat. El bot está pausado." });
-            return; 
+            return; // Cortamos la ejecución, el mensaje NO va a n8n
         }
 
+        // Comando para que RRHH reactive el bot
         if (textToEvaluate === "!activar") {
             silencedUsers.delete(senderJid);
             console.log(`🔊 Bot reactivado para: ${senderJid}`);
             await sock.sendMessage(senderJid, { text: "🤖 Macxito vuelve a estar operativo en este chat." });
-            return; 
+            return; // Cortamos la ejecución, el mensaje NO va a n8n
         }
 
+        // Si el usuario está en la lista de silenciados, ignoramos sus mensajes
         if (silencedUsers.has(senderJid)) {
             console.log(`[Modo Silencioso] Mensaje ignorado de ${pushName}: ${incomingText}`);
-            return; 
+            return; // NO enviamos el mensaje a n8n
         }
+        // ========================================================
+        // 🟢 FIN LÓGICA MODO SILENCIOSO
+        // ========================================================
 
         console.log(`📩 Mensaje de ${pushName} (${senderJid}): ${incomingText}`);
 
         try {
             console.log(`➡️  Consultando cerebro (n8n)...`);
 
+            // ---------------------------------------------------------
+            // 🛡️ 1. INTERCEPTOR: VERIFICAR SI EL NÚMERO ESTÁ PAUSADO
+            // ---------------------------------------------------------
             if (usuariosPausados.has(senderJid)) {
                 const tiempoInicioPausa = usuariosPausados.get(senderJid);
                 const tiempoTranscurrido = Date.now() - tiempoInicioPausa;
@@ -109,13 +148,16 @@ async function startBot() {
                 if (tiempoTranscurrido < TIEMPO_PAUSA_MS) {
                     const minutosRestantes = ((TIEMPO_PAUSA_MS - tiempoTranscurrido) / 60000).toFixed(0);
                     console.log(`⏳ [BOT PAUSADO] Ignorando mensaje de ${senderJid}. Restan: ${minutosRestantes} min.`);
-                    return; 
+                    return; // 🛑 CORTA LA EJECUCIÓN. El mensaje muere aquí, no va a n8n.
                 } else {
                     console.log(`✅ [PAUSA TERMINADA] El tiempo expiró. Reactivando bot para ${senderJid}.`);
                     usuariosPausados.delete(senderJid);
                 }
             }
 
+            // ---------------------------------------------------------
+            // 🎯 2. DISPARADOR: ACTIVAR LA PAUSA SI SE ELIGE HUMANO
+            // ---------------------------------------------------------
             const comandoUsuario = incomingText.trim().toUpperCase();
             if (comandoUsuario === '3' || comandoUsuario === 'B') {
                 usuariosPausados.set(senderJid, Date.now());
@@ -146,8 +188,12 @@ async function startBot() {
 
 startBot().catch(err => console.error("Error crítico al arrancar:", err));
 
+// ==========================================
+// 🛡️ ESCUDO ANTI-CAÍDAS (ERRORES GLOBALES)
+// ==========================================
 process.on('uncaughtException', (err) => {
     console.error('⚠️ Error global capturado (uncaughtException):', err.message);
+    // No apagamos el bot, dejamos que Baileys se reconecte solo
 });
 
 process.on('unhandledRejection', (reason, promise) => {
