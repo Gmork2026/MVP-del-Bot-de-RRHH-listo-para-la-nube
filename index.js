@@ -23,12 +23,34 @@ async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_session_v2');
 
     const sock = makeWASocket({
-        version: version, // <-- AQUÍ PASAMOS LA VERSIÓN
+        version: version, 
         auth: state,
         logger: pino({ level: 'silent' }), 
         browser: ["Macxito Bot", "Chrome", "1.0.0"],
-        printQRInTerminal: false
+        printQRInTerminal: false, // 🔴 APAGAMOS EL QR
+        syncFullHistory: false,   // 🟢 Hacemos que cargue más rápido
+        generateHighQualityLinkPreview: true
     });
+
+    // ========================================================
+    // 🔑 MAGIA DE VINCULACIÓN EN LA NUBE (CÓDIGO DE 8 DÍGITOS)
+    // ========================================================
+    if (!sock.authState.creds.registered) {
+        setTimeout(async () => {
+            // ⚠️ REEMPLAZA ESTE NÚMERO POR EL DEL BOT (Ej: 5491123456789)
+            let numeroBot = "5491121895719"; 
+            
+            try {
+                let code = await sock.requestPairingCode(numeroBot);
+                code = code?.match(/.{1,4}/g)?.join("-") || code;
+                console.log(`\n========================================`);
+                console.log(`🔑 TU CÓDIGO DE VINCULACIÓN ES: ${code}`);
+                console.log(`========================================\n`);
+            } catch (error) {
+                console.log("Error pidiendo código de vinculación: ", error.message);
+            }
+        }, 3000);
+    }
 
     sock.ev.on('creds.update', saveCreds);
 
