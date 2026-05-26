@@ -86,7 +86,18 @@ async function startBot() {
     sock.ev.on('messages.upsert', async m => {
         const msg = m.messages[0];
         
-        if (!msg.message || msg.key.fromMe || msg.key.remoteJid.includes('@g.us')) return; 
+        // 1. Filtramos mensajes vacíos o de grupos, pero NO filtramos los nuestros todavía
+        if (!msg.message || msg.key.remoteJid.includes('@g.us')) return; 
+
+        const senderJid = msg.key.remoteJidAlt || msg.key.remoteJid; 
+
+        // 🚨 NUEVA REGLA: AUTO-SILENCIO POR INTERVENCIÓN HUMANA
+        // Si el mensaje lo envió un humano desde el celular/WhatsApp Web de la empresa
+        if (msg.key.fromMe) {
+            usuariosPausados.set(senderJid, Date.now());
+            console.log(`👤 [ASESOR AL MANDO] Intervención humana detectada. Bot silenciado para ${senderJid} por 60 min.`);
+            return; // Cortamos aquí para que el bot no se responda a sí mismo
+        }
 
         // ==========================================
         // 🛠️ DIAGNÓSTICO DE INGENIERÍA PARA EL @LID
