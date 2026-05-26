@@ -108,7 +108,6 @@ async function startBot() {
         console.log(`Rayos X del mensaje:`, JSON.stringify(msg, null, 2));
         console.log(`-------------------------\n`);*/
         
-        const senderJid = msg.key.remoteJidAlt || msg.key.remoteJid; 
         const pushName = msg.pushName || 'Usuario';
         const incomingText = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
 
