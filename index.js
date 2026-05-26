@@ -86,94 +86,51 @@ async function startBot() {
     sock.ev.on('messages.upsert', async m => {
         const msg = m.messages[0];
         
-        // 1. Filtramos mensajes vacíos o de grupos, pero NO filtramos los nuestros todavía
+        // 1. Filtros iniciales de seguridad
         if (!msg.message || msg.key.remoteJid.includes('@g.us')) return; 
 
         const senderJid = msg.key.remoteJidAlt || msg.key.remoteJid; 
-
-        // 🚨 NUEVA REGLA: AUTO-SILENCIO POR INTERVENCIÓN HUMANA
-        // Si el mensaje lo envió un humano desde el celular/WhatsApp Web de la empresa
-        if (msg.key.fromMe) {
-            usuariosPausados.set(senderJid, Date.now());
-            console.log(`👤 [ASESOR AL MANDO] Intervención humana detectada. Bot silenciado para ${senderJid} por 60 min.`);
-            return; // Cortamos aquí para que el bot no se responda a sí mismo
-        }
-
-        // ==========================================
-        // 🛠️ DIAGNÓSTICO DE INGENIERÍA PARA EL @LID
-        // ==========================================
-        /*console.log(`\n--- 🔍 DEBUG WHATSAPP ---`);
-        console.log(`Remote JID (El enmascarado):`, msg.key.remoteJid);
-        console.log(`Participant (¿ID Real?):`, msg.key.participant || 'No existe');
-        console.log(`Rayos X del mensaje:`, JSON.stringify(msg, null, 2));
-        console.log(`-------------------------\n`);*/
-        
         const pushName = msg.pushName || 'Usuario';
         const incomingText = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
 
+        // 2. REGLA: AUTO-SILENCIO POR INTERVENCIÓN HUMANA
+        if (msg.key.fromMe) {
+            usuariosPausados.set(senderJid, Date.now());
+            console.log(`👤 [ASESOR AL MANDO] Intervención humana detectada. Bot silenciado para ${senderJid} por 60 min.`);
+            return; 
+        }
+
         if(incomingText === "") return; 
 
-        // ========================================================
-        // 🛑 INICIO LÓGICA MODO SILENCIOSO (INTERVENCIÓN RRHH)
-        // ========================================================
+        // 3. COMANDOS MANUALES (Modo silencioso)
         const textToEvaluate = incomingText.trim().toLowerCase();
-
-        // Comando para que RRHH pause el bot manualmente
         if (textToEvaluate === "!pausar") {
             silencedUsers.add(senderJid);
-            console.log(`🔇 Bot silenciado manualmente para: ${senderJid}`);
-            await sock.sendMessage(senderJid, { text: "✅ Un representante de RRHH ha tomado el chat. El bot está pausado." });
-            return; // Cortamos la ejecución, el mensaje NO va a n8n
+            await sock.sendMessage(senderJid, { text: "✅ Un representante de RRHH ha tomado el chat. Bot pausado." });
+            return;
         }
-
-        // Comando para que RRHH reactive el bot
         if (textToEvaluate === "!activar") {
             silencedUsers.delete(senderJid);
-            console.log(`🔊 Bot reactivado para: ${senderJid}`);
-            await sock.sendMessage(senderJid, { text: "🤖 Macxito vuelve a estar operativo en este chat." });
-            return; // Cortamos la ejecución, el mensaje NO va a n8n
+            await sock.sendMessage(senderJid, { text: "🤖 Macxito reactivado." });
+            return;
+        }
+        if (silencedUsers.has(senderJid)) return;
+
+        // 4. VERIFICACIÓN DE PAUSA AUTOMÁTICA
+        if (usuariosPausados.has(senderJid)) {
+            const tiempoInicioPausa = usuariosPausados.get(senderJid);
+            if (Date.now() - tiempoInicioPausa < TIEMPO_PAUSA_MS) {
+                console.log(`⏳ [BOT PAUSADO] Ignorando mensaje de ${senderJid}.`);
+                return; 
+            } else {
+                usuariosPausados.delete(senderJid);
+            }
         }
 
-        // Si el usuario está en la lista de silenciados, ignoramos sus mensajes
-        if (silencedUsers.has(senderJid)) {
-            console.log(`[Modo Silencioso] Mensaje ignorado de ${pushName}: ${incomingText}`);
-            return; // NO enviamos el mensaje a n8n
-        }
-        // ========================================================
-        // 🟢 FIN LÓGICA MODO SILENCIOSO
-        // ========================================================
-
+        // 5. PROCESAMIENTO Y ENVÍO A N8N
         console.log(`📩 Mensaje de ${pushName} (${senderJid}): ${incomingText}`);
 
         try {
-            console.log(`➡️  Consultando cerebro (n8n)...`);
-
-            // ---------------------------------------------------------
-            // 🛡️ 1. INTERCEPTOR: VERIFICAR SI EL NÚMERO ESTÁ PAUSADO
-            // ---------------------------------------------------------
-            if (usuariosPausados.has(senderJid)) {
-                const tiempoInicioPausa = usuariosPausados.get(senderJid);
-                const tiempoTranscurrido = Date.now() - tiempoInicioPausa;
-
-                if (tiempoTranscurrido < TIEMPO_PAUSA_MS) {
-                    const minutosRestantes = ((TIEMPO_PAUSA_MS - tiempoTranscurrido) / 60000).toFixed(0);
-                    console.log(`⏳ [BOT PAUSADO] Ignorando mensaje de ${senderJid}. Restan: ${minutosRestantes} min.`);
-                    return; // 🛑 CORTA LA EJECUCIÓN. El mensaje muere aquí, no va a n8n.
-                } else {
-                    console.log(`✅ [PAUSA TERMINADA] El tiempo expiró. Reactivando bot para ${senderJid}.`);
-                    usuariosPausados.delete(senderJid);
-                }
-            }
-
-            // ---------------------------------------------------------
-            // 🎯 2. DISPARADOR: ACTIVAR LA PAUSA SI SE ELIGE HUMANO
-            // ---------------------------------------------------------
-            const comandoUsuario = incomingText.trim().toUpperCase();
-            if (comandoUsuario === '3' || comandoUsuario === 'B') {
-                usuariosPausados.set(senderJid, Date.now());
-                console.log(`🛑 [NUEVA PAUSA ACTIVADA] El usuario ${senderJid} se derivó a un humano. Bot silenciado por 60 min.`);
-            }
-            
             const n8nResponse = await axios.post(N8N_WEBHOOK_URL, {
                 sender: senderJid,
                 message: incomingText.trim(), 
@@ -182,14 +139,15 @@ async function startBot() {
 
             if (n8nResponse.data && n8nResponse.data.reply) {
                 const replyText = n8nResponse.data.reply;
-                console.log(`⬅️  n8n respondió: [${replyText.substring(0, 20)}...]`);
-                
                 await sock.sendMessage(senderJid, { text: replyText });
-                console.log('✅ Mensaje enviado al usuario.');
-            } else {
-                console.error('❌ n8n respondió, pero no incluyó el campo "reply" en el JSON.');
+                
+                // Si n8n determina que la charla terminó y se derivó a un humano,
+                // n8n debería devolver un campo extra: "pausar": true
+                if (n8nResponse.data.pausar === true) {
+                    usuariosPausados.set(senderJid, Date.now());
+                    console.log(`🛑 [PAUSA ACTIVADA POR N8N] para ${senderJid}`);
+                }
             }
-            
         } catch (error) {
             console.error('❌ Error comunicando con n8n:', error.message);
         }
