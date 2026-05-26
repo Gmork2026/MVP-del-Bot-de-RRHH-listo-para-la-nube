@@ -10,6 +10,7 @@ const usuariosPausados = new Map();
 const TIEMPO_PAUSA_MS = 60 * 60 * 1000; // 60 minutos exactos en milisegundos
 
 const silencedUsers = new Set(); // Memoria temporal para el Modo Silencioso
+const mensajesDelBot = new Set();
 
 const N8N_WEBHOOK_URL = 'https://n8n-production-115e.up.railway.app/webhook/whatsapp';
 
@@ -95,6 +96,10 @@ async function startBot() {
 
         // 2. REGLA: AUTO-SILENCIO POR INTERVENCIÓN HUMANA
         if (msg.key.fromMe) {
+            // Si el mensaje es un eco de lo que acaba de enviar el bot, lo ignoramos
+            if (mensajesDelBot.has(msg.key.id)) return;
+
+            // Si no está en la memoria del bot, es porque un asesor humano escribió
             usuariosPausados.set(senderJid, Date.now());
             console.log(`👤 [ASESOR AL MANDO] Intervención humana detectada. Bot silenciado para ${senderJid} por 60 min.`);
             return; 
@@ -139,10 +144,17 @@ async function startBot() {
 
             if (n8nResponse.data && n8nResponse.data.reply) {
                 const replyText = n8nResponse.data.reply;
-                await sock.sendMessage(senderJid, { text: replyText });
                 
-                // Si n8n determina que la charla terminó y se derivó a un humano,
-                // n8n debería devolver un campo extra: "pausar": true
+                // 🟢 NUEVO: Capturamos el mensaje que acabamos de enviar
+                const sentMsg = await sock.sendMessage(senderJid, { text: replyText });
+                
+                // 🟢 NUEVO: Guardamos su ID en la memoria por 60 segundos
+                if (sentMsg?.key?.id) {
+                    mensajesDelBot.add(sentMsg.key.id);
+                    setTimeout(() => mensajesDelBot.delete(sentMsg.key.id), 60000); 
+                }
+                
+                // Si n8n determina que la charla terminó y se derivó a un humano
                 if (n8nResponse.data.pausar === true) {
                     usuariosPausados.set(senderJid, Date.now());
                     console.log(`🛑 [PAUSA ACTIVADA POR N8N] para ${senderJid}`);
