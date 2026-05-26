@@ -57,11 +57,11 @@ async function startBot() {
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        if (qr) {
+        /*if (qr) {
             console.clear();
             console.log('🔽 ESCANEA ESTE QR CON TU WHATSAPP (MODO MULTIDISPOSITIVO) 🔽');
             qrcode.generate(qr, { small: true });
-        }
+        }*/
 
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
