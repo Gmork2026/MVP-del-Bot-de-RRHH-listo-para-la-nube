@@ -96,12 +96,18 @@ async function startBot() {
 
         // 2. REGLA: AUTO-SILENCIO POR INTERVENCIÓN HUMANA
         if (msg.key.fromMe) {
-            // Si el mensaje es un eco de lo que acaba de enviar el bot, lo ignoramos
-            if (mensajesDelBot.has(msg.key.id)) return;
-
-            // Si no está en la memoria del bot, es porque un asesor humano escribió
+            if (mensajesDelBot.has(msg.key.id)) return; // Ignora el eco del bot
+            
             usuariosPausados.set(senderJid, Date.now());
-            console.log(`👤 [ASESOR AL MANDO] Intervención humana detectada. Bot silenciado para ${senderJid} por 60 min.`);
+            console.log(`👤 [ASESOR AL MANDO] Registrando respuesta humana para ${senderJid}`);
+            
+            if (incomingText !== "") {
+                // Envío de registro silencioso (Lo que escribe RRHH)
+                axios.post(N8N_WEBHOOK_URL, {
+                    sender: senderJid, message: incomingText, name: pushName,
+                    silentLogOnly: true, clasificacion: "Respuesta de RRHH", atendidoPor: "Humano"
+                }).catch(()=>{}); 
+            }
             return; 
         }
 
@@ -125,36 +131,42 @@ async function startBot() {
         if (usuariosPausados.has(senderJid)) {
             const tiempoInicioPausa = usuariosPausados.get(senderJid);
             if (Date.now() - tiempoInicioPausa < TIEMPO_PAUSA_MS) {
-                console.log(`⏳ [BOT PAUSADO] Ignorando mensaje de ${senderJid}.`);
+                console.log(`⏳ [EN PROCESO] Registrando mensaje de ${senderJid} en modo silencioso.`);
+                
+                // Envío de registro silencioso (Lo que escribe el postulante/empleado)
+                axios.post(N8N_WEBHOOK_URL, {
+                    sender: senderJid, message: incomingText, name: pushName,
+                    silentLogOnly: true, clasificacion: "Mensaje (En Proceso)", atendidoPor: "Humano"
+                }).catch(()=>{});
+                
                 return; 
             } else {
                 usuariosPausados.delete(senderJid);
             }
         }
 
-        // 5. PROCESAMIENTO Y ENVÍO A N8N
+        // 5. PROCESAMIENTO Y ENVÍO NORMAL A N8N
         console.log(`📩 Mensaje de ${pushName} (${senderJid}): ${incomingText}`);
 
         try {
             const n8nResponse = await axios.post(N8N_WEBHOOK_URL, {
                 sender: senderJid,
                 message: incomingText.trim(), 
-                name: pushName
+                name: pushName,
+                silentLogOnly: false, // 🟢 Etiqueta normal
+                clasificacion: "Mensaje Entrante",
+                atendidoPor: "Bot"
             }, { timeout: 10000 }); 
 
             if (n8nResponse.data && n8nResponse.data.reply) {
                 const replyText = n8nResponse.data.reply;
                 
-                // 🟢 NUEVO: Capturamos el mensaje que acabamos de enviar
                 const sentMsg = await sock.sendMessage(senderJid, { text: replyText });
-                
-                // 🟢 NUEVO: Guardamos su ID en la memoria por 60 segundos
                 if (sentMsg?.key?.id) {
                     mensajesDelBot.add(sentMsg.key.id);
                     setTimeout(() => mensajesDelBot.delete(sentMsg.key.id), 60000); 
                 }
                 
-                // Si n8n determina que la charla terminó y se derivó a un humano
                 if (n8nResponse.data.pausar === true) {
                     usuariosPausados.set(senderJid, Date.now());
                     console.log(`🛑 [PAUSA ACTIVADA POR N8N] para ${senderJid}`);
